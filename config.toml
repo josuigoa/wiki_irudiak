@@ -1,0 +1,4 @@
+wiki_url="https://eu.wikipedia.org/wiki/"
+wiki_api_endpoint="https://eu.wikipedia.org/w/api.php?action=query&format=json&formatversion=2"
+min_width=800
+min_height=600

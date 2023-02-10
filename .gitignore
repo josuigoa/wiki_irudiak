@@ -1,4 +1,8 @@
 *.exe
 *.pdb
+*.exp
+*.lib
+
 *.jpg
 *.png
+.last_wiki_url
