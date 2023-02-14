@@ -34,13 +34,14 @@ struct Terms {
 
 struct App {
 mut:
-	config      toml.Doc
-	title       string
-	description string
-	wiki_url    string
-	image_url   string
-	width       int
-	height      int
+	config               toml.Doc
+	title                string
+	description          string
+	wiki_url             string
+	horizontal_image_url string
+	vertical_image_url   string
+	width                int
+	height               int
 }
 
 fn get_extension(img string) string {
@@ -48,7 +49,7 @@ fn get_extension(img string) string {
 }
 
 fn check_size(config toml.Doc, width int, height int) bool {
-	return width > config.value('min_width').int() && height > config.value('min_height').int()
+	return width >= config.value('min_width').int() && height >= config.value('min_height').int()
 		&& width > height
 }
 
@@ -69,13 +70,15 @@ fn (mut app App) get_info_box() bool {
 		return false
 	}
 
-	app.description = data.query.pages[0].terms.description[0]
+	if data.query.pages[0].terms.description.len > 0 {
+		app.description = data.query.pages[0].terms.description[0]
+	}
 
 	media := data.query.pages[0].original
 	extension := get_extension(media.source)
 
 	if check_size(app.config, media.width, media.height) && (extension == 'jpg') {
-		app.image_url = media.source
+		app.horizontal_image_url = media.source
 		app.width = media.width
 		app.height = media.height
 
@@ -110,7 +113,7 @@ fn (mut app App) get_page() bool {
 		index := rand.intn(pages.len) or { 0 }
 		media := pages[index].imageinfo[0]
 		if check_size(app.config, media.width, media.height) {
-			app.image_url = media.url
+			app.horizontal_image_url = media.url
 			app.width = media.width
 			app.height = media.height
 
@@ -144,14 +147,14 @@ fn main() {
 		if !app.get_info_box() {
 			app.get_page()
 		}
-		if app.image_url != '' {
+		if app.horizontal_image_url != '' {
 			break
 		}
 	}
 
-	println('Downloading [${app.image_url}] image')
-	http.download_file(app.image_url, './img/${app.title}.${get_extension(app.image_url)}') or {
-		// http.download_file(app.image_url, app.config.value('out_file_path').string()) or {
+	println('Downloading [${app.horizontal_image_url}] image')
+	http.download_file(app.horizontal_image_url, './img/${app.title}.${get_extension(app.horizontal_image_url)}') or {
+		// http.download_file(app.horizontal_image_url, app.config.value('out_file_path').string()) or {
 		panic('Failed to download image, error: ${err}')
 		return
 	}
