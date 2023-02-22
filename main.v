@@ -3,6 +3,7 @@ import json
 import rand
 import os
 import toml
+import gg
 
 struct InfoBoxData {
 	query InfoBoxQuery
@@ -34,14 +35,14 @@ struct Terms {
 
 struct App {
 mut:
-	config               toml.Doc
-	title                string
-	description          string
-	wiki_url             string
-	horizontal_image_url string
-	vertical_image_url   string
-	width                int
-	height               int
+	config            toml.Doc
+	title             string
+	description       string
+	wiki_url          string
+	page_image_url    string
+	infobox_image_url string
+	width             int
+	height            int
 }
 
 fn get_extension(img string) string {
@@ -49,8 +50,17 @@ fn get_extension(img string) string {
 }
 
 fn check_size(config toml.Doc, width int, height int) bool {
-	return width >= config.value('min_width').int() && height >= config.value('min_height').int()
-		&& width > height
+	min_size := width >= config.value('min_width').int()
+		&& height >= config.value('min_height').int()
+	conf_orientation := config.value_opt('orientation') or { toml.Any('both') }
+	if conf_orientation.string() == 'horizontal' {
+		return min_size && width > height
+	}
+	if conf_orientation.string() == 'vertical' {
+		return min_size && height > width
+	}
+
+	return min_size
 }
 
 fn (mut app App) get_info_box() bool {
@@ -66,19 +76,22 @@ fn (mut app App) get_info_box() bool {
 		return false
 	}
 
-	if data.query.pages.len == 0 {
+	pages := data.query.pages
+	if pages.len == 0 {
 		return false
 	}
 
-	if data.query.pages[0].terms.description.len > 0 {
-		app.description = data.query.pages[0].terms.description[0]
+	index := rand.intn(pages.len) or { 0 }
+	page := pages[index]
+	if page.terms.description.len > 0 {
+		app.description = page.terms.description[0]
 	}
 
-	media := data.query.pages[0].original
+	media := page.original
 	extension := get_extension(media.source)
 
-	if check_size(app.config, media.width, media.height) && (extension == 'jpg') {
-		app.horizontal_image_url = media.source
+	if check_size(app.config, media.width, media.height) && extension == 'jpg' {
+		app.infobox_image_url = media.source
 		app.width = media.width
 		app.height = media.height
 
@@ -103,17 +116,21 @@ fn (mut app App) get_page() bool {
 
 	mut count := 0
 
-	pages := data.query.pages.filter(it.imageinfo.len > 0
-		&& get_extension(it.imageinfo[0].url) == 'jpg')
+	pages := data.query.pages
 
 	if pages.len == 0 {
 		return false
 	}
 	for {
 		index := rand.intn(pages.len) or { 0 }
-		media := pages[index].imageinfo[0]
-		if check_size(app.config, media.width, media.height) {
-			app.horizontal_image_url = media.url
+		page := pages[index]
+		if page.imageinfo.len == 0 {
+			continue
+		}
+		img_info_index := rand.intn(page.imageinfo.len) or { 0 }
+		media := page.imageinfo[img_info_index]
+		if check_size(app.config, media.width, media.height) && get_extension(media.url) == 'jpg' {
+			app.page_image_url = media.url
 			app.width = media.width
 			app.height = media.height
 
@@ -128,11 +145,26 @@ fn (mut app App) get_page() bool {
 	return true
 }
 
+fn pick_non_empty(first string, second string) string {
+	return if first != '' && second != '' {
+		if rand.f32() < .5 {
+			first
+		} else {
+			second
+		}
+	} else if first != '' {
+		first
+	} else {
+		second
+	}
+}
+
 fn main() {
 	mut app := App{
 		config: toml.parse_file('./config.toml') or { panic(err) }
 		title: ''
-		image_url: ''
+		page_image_url: ''
+		infobox_image_url: ''
 	}
 
 	titles_json := os.read_file('./titles.json') or { '[]' }
@@ -141,32 +173,48 @@ fn main() {
 		return
 	}
 
+	mut download_image_url := ''
 	for {
 		index := rand.intn(titles.len) or { 0 }
 		app.title = titles[index]
-		if !app.get_info_box() {
-			app.get_page()
-		}
-		if app.horizontal_image_url != '' {
+		app.get_info_box()
+		app.get_page()
+
+		download_image_url = pick_non_empty(app.page_image_url, app.infobox_image_url)
+
+		if download_image_url != '' {
 			break
 		}
 	}
 
-	println('Downloading [${app.horizontal_image_url}] image')
-	http.download_file(app.horizontal_image_url, './img/${app.title}.${get_extension(app.horizontal_image_url)}') or {
-		// http.download_file(app.horizontal_image_url, app.config.value('out_file_path').string()) or {
+	conf_out_path := app.config.value('out_file_path')
+	mut out_path := ''
+	if conf_out_path == toml.null {
+		out_path = './img/${app.title}.${get_extension(download_image_url)}'
+	} else {
+		out_path = conf_out_path.string()
+	}
+
+	println('Downloading [${download_image_url}] image')
+	http.download_file(download_image_url, out_path) or {
 		panic('Failed to download image, error: ${err}')
 		return
 	}
 
+	screen_size := gg.screen_size()
 	wiki_url := '${app.config.value('wiki_url').string()}${app.title}'
 	img_msg := '${app.title}\\n${app.description}\\nIturria: ${wiki_url}'
 	if os.exists_in_system_path('magick') {
+		println('Resizing image')
+		new_size := '${screen_size.width}x${screen_size.height}'
+		img_resize_cmd := 'magick convert -resize ${new_size}^ -gravity center -extent ${new_size} ${out_path} ${out_path}'
+		os.execute(img_resize_cmd)
+
 		println('Inserting data in image')
-		pointsize := f32(app.width) * 0.015
-		annotate := '+20+${f32(app.height) * 0.03}'
-		img_magick_cmd := 'magick convert -fill white -pointsize ${pointsize} -gravity SouthEast -annotate ${annotate} "${img_msg}" ./img/${app.title}.jpg ./img/${app.title}.jpg'
-		os.execute(img_magick_cmd)
+		pointsize := f32(screen_size.width) * 0.015
+		annotate := '+20+${f32(screen_size.height) * 0.03}'
+		img_data_cmd := 'magick convert -fill white -pointsize ${pointsize} -gravity SouthEast -annotate ${annotate} "${img_msg}" ${out_path} ${out_path}'
+		os.execute(img_data_cmd)
 	} else {
 		os.write_file('./.last_wiki_url', img_msg) or {
 			panic('Failed to write file, error: ${err}')
