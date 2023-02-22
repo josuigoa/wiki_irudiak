@@ -1,5 +1,6 @@
 wiki_url="https://eu.wikipedia.org/wiki/"
 wiki_api_endpoint="https://eu.wikipedia.org/w/api.php?action=query&format=json&formatversion=2"
-min_width=800
-min_height=600
-out_file_path="/path/to/lockscreen_background.jpg"
+min_width=0
+min_height=0
+# orientation="both" # horizontal, vertical, both
+# out_file_path="/path/to/lockscreen_background.jpg"
